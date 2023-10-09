@@ -35,7 +35,7 @@ int main(int argc, char *argv[])
     int             status;
 
     app = gtk_application_new("io.github.compyx.evdev-js-test",
-                              G_APPLICATION_FLAGS_NONE);
+                              G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(G_OBJECT(app), "activate", G_CALLBACK(on_app_activate), NULL);
     g_signal_connect(G_OBJECT(app), "shutdown", G_CALLBACK(on_app_shutdown), NULL);
     status = g_application_run(G_APPLICATION(app), argc, argv);

@@ -21,6 +21,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "vice.h"
+
 #include "joystick.h"
 
 
@@ -132,43 +134,6 @@ static const ev_code_name_t hat_names[] = {
     { ABS_HAT3Y,    "Hat3" },
 };
 
-/*
- * Some functions normally available in VICE
- */
-#ifndef VICE_VERSION
-static void *lib_malloc(size_t size)
-{
-    void *ptr = malloc(size);
-    if (ptr == NULL) {
-        fprintf(stderr, "fatal: failed to allocate %zu bytes.\n", size);
-        exit(1);
-    }
-    return ptr;
-}
-
-static void *lib_calloc(size_t nmemb, size_t size)
-{
-    void *ptr = calloc(nmemb, size);
-    if (ptr == NULL) {
-        fprintf(stderr, "fatal: failed to allocate %zu bytes\n", nmemb * size);
-        exit(1);
-    }
-    return ptr;
-}
-
-static void lib_free(void *ptr)
-{
-    free(ptr);
-}
-
-static char *lib_strdup(const char *s)
-{
-    size_t  len = strlen(s);
-    char   *ptr = lib_malloc(len + 1u);
-    memcpy(ptr, s, len + 1u);
-    return ptr;
-}
-#endif
 
 
 /** \brief  Get axis name for event code

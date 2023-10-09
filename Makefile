@@ -1,4 +1,3 @@
-CC=gcc
 LD=$(CC)
 VPATH=src
 
@@ -12,9 +11,6 @@ LDFLAGS = `pkg-config --libs gtk+-3.0 libevdev`
 
 PROG = evdev-js-test
 OBJS = main.o app-window.o device-list-widget.o joystick.o
-
-
-
 
 $(PROG): $(OBJS)
 	$(LD) -o $@ $^ $(LDFLAGS)

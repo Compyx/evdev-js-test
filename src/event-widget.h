@@ -12,4 +12,6 @@
 GtkWidget *event_widget_new(void);
 void       event_widget_set_device(const joy_dev_info_t *device);
 void       event_widget_clear(void);
+gboolean   event_widget_poll(const joy_dev_info_t *info);
+
 #endif

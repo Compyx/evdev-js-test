@@ -4,7 +4,15 @@
  */
 
 #include <gtk/gtk.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <libevdev/libevdev.h>
+#include <linux/input.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #include "button-widget.h"
 #include "joystick.h"
@@ -141,6 +149,9 @@ void event_widget_set_device(const joy_dev_info_t *device)
         gtk_grid_attach(GTK_GRID(button_grid), label,  0, (int)b + 1, 1, 1);
         gtk_grid_attach(GTK_GRID(button_grid), button, 1, (int)b + 1, 1, 1);
     }
+
+    //    event_widget_poll(device);
+
 }
 
 
@@ -152,3 +163,76 @@ void event_widget_clear(void)
     titled_grid_clear(axis_grid,   AXIS_GRID_COLUMNS);
     titled_grid_clear(hat_grid,    HAT_GRID_COLUMNS);
 }
+
+
+static void print_event(struct input_event *ev)
+{
+    if (ev->type == EV_SYN) {
+        printf("Event: time %ld.%06ld, +++ %s +++\n",
+               ev->input_event_sec,
+               ev->input_event_usec,
+               libevdev_event_type_get_name(ev->type));
+    } else {
+        printf("Event: time %ld.%06ld, type %d (%s), code %d (%s), value %d\n",
+               ev->input_event_sec,
+               ev->input_event_usec,
+               ev->type,
+               libevdev_event_type_get_name(ev->type),
+               ev->code,
+               libevdev_event_code_get_name(ev->type, ev->code),
+               ev->value);
+    }
+}
+
+
+gboolean event_widget_poll(const joy_dev_info_t *info)
+{
+    int fd;
+    int rc;
+    struct libevdev *dev;
+
+    fd = open(info->path, O_RDONLY|O_NONBLOCK);
+    if (fd < 0) {
+        perror("Failed to open device");
+        return FALSE;
+    }
+    rc = libevdev_new_from_fd(fd, &dev);
+    if (rc < 0) {
+        fprintf(stderr, "failed to initialize libevdev: %s\n", strerror(-rc));
+        close(fd);
+        return FALSE;
+    }
+
+    printf("Starting polling\n");
+
+    do {
+        struct input_event ev;
+        unsigned int flags = LIBEVDEV_READ_FLAG_NORMAL|LIBEVDEV_READ_FLAG_BLOCKING;
+
+        rc = libevdev_next_event(dev, flags, &ev);
+        if (rc == LIBEVDEV_READ_STATUS_SYNC) {
+            printf("=== dropped ===\n");
+            while (rc == LIBEVDEV_READ_STATUS_SYNC) {
+                printf("SYNC:\n");
+                print_event(&ev);
+                rc = libevdev_next_event(dev, LIBEVDEV_READ_FLAG_SYNC, &ev);
+            }
+            printf("=== re-synced ===\n");
+        } else if (rc == LIBEVDEV_READ_STATUS_SUCCESS) {
+            print_event(&ev);
+        }
+    } while (rc == LIBEVDEV_READ_STATUS_SYNC ||
+             rc == LIBEVDEV_READ_STATUS_SUCCESS ||
+             rc == -EAGAIN);
+
+    if (rc != LIBEVDEV_READ_STATUS_SUCCESS && rc != -EAGAIN) {
+        fprintf(stderr, "failed to handle events: %s\n", strerror(-rc));
+    }
+
+    close(fd);
+    libevdev_free(dev);
+
+    return TRUE;
+}
+
+

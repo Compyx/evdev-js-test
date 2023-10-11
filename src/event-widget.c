@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include "app-window.h"
 #include "button-widget.h"
 #include "joystick.h"
 
@@ -23,6 +24,17 @@
 #define BUTTON_GRID_COLUMNS 2
 #define AXIS_GRID_COLUMNS   2
 #define HAT_GRID_COLUMNS    2
+
+
+typedef struct poll_state_s {
+    GThread        *thread;
+    joy_dev_info_t *device;
+    gboolean        cancel;
+} poll_state_t;
+
+static poll_state_t poll_state;
+static GMutex       poll_mutex;
+
 
 
 static GtkWidget *button_grid;
@@ -102,11 +114,26 @@ static void titled_grid_clear(GtkWidget *grid, int columns)
 }
 
 
+static void on_stop_polling_clicked(G_GNUC_UNUSED GtkButton *self,
+                                    G_GNUC_UNUSED gpointer data)
+{
+    event_widget_stop_poll();
+}
+
+
 /** \brief  Create widget to show indicators for events
  */
 GtkWidget *event_widget_new(void)
 {
     GtkWidget *grid;
+    GtkWidget *stop_btn;
+
+    g_mutex_init(&poll_mutex);
+    g_mutex_lock(&poll_mutex);
+    poll_state.thread = NULL;
+    poll_state.device = NULL;
+    poll_state.cancel = FALSE;
+    g_mutex_unlock(&poll_mutex);
 
     grid = titled_grid_new("<b>Joystick events</b>", 3, 32, 16);
     gtk_grid_set_column_homogeneous(GTK_GRID(grid), TRUE);
@@ -122,6 +149,13 @@ GtkWidget *event_widget_new(void)
     gtk_grid_attach(GTK_GRID(grid), axis_grid,   1, 1, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), hat_grid,    2, 1, 1, 1);
 
+    stop_btn = gtk_button_new_with_label("Stop polling");
+    gtk_grid_attach(GTK_GRID(grid), stop_btn, 2, 2, 1, 1);
+    g_signal_connect(G_OBJECT(stop_btn),
+                     "clicked",
+                     G_CALLBACK(on_stop_polling_clicked),
+                     NULL);
+
     gtk_widget_show_all(grid);
     return grid;
 }
@@ -131,7 +165,7 @@ GtkWidget *event_widget_new(void)
  *
  * \param[in]   device  joystick device
  */
-void event_widget_set_device(const joy_dev_info_t *device)
+void event_widget_set_device(joy_dev_info_t *device)
 {
     unsigned int b;
 
@@ -150,7 +184,7 @@ void event_widget_set_device(const joy_dev_info_t *device)
         gtk_grid_attach(GTK_GRID(button_grid), button, 1, (int)b + 1, 1, 1);
     }
 
-    //    event_widget_poll(device);
+    event_widget_start_poll(device);
 
 }
 
@@ -185,22 +219,23 @@ static void print_event(struct input_event *ev)
 }
 
 
-gboolean event_widget_poll(const joy_dev_info_t *info)
+static gpointer poll_worker(gpointer data)
 {
-    int fd;
-    int rc;
+    int              fd;
+    int              rc;
     struct libevdev *dev;
+    joy_dev_info_t  *info = data;
 
     fd = open(info->path, O_RDONLY|O_NONBLOCK);
     if (fd < 0) {
         perror("Failed to open device");
-        return FALSE;
+        return NULL;
     }
     rc = libevdev_new_from_fd(fd, &dev);
     if (rc < 0) {
         fprintf(stderr, "failed to initialize libevdev: %s\n", strerror(-rc));
         close(fd);
-        return FALSE;
+        return NULL;
     }
 
     printf("Starting polling\n");
@@ -221,6 +256,19 @@ gboolean event_widget_poll(const joy_dev_info_t *info)
         } else if (rc == LIBEVDEV_READ_STATUS_SUCCESS) {
             print_event(&ev);
         }
+
+        g_mutex_lock(&poll_mutex);
+        if (poll_state.cancel) {
+            printf("Stopped polling.\n");
+            app_window_message("Stopped polling.");
+            close(fd);
+            libevdev_free(dev);
+            poll_state.cancel = FALSE;
+            g_mutex_unlock(&poll_mutex);
+            return NULL;
+        }
+        g_mutex_unlock(&poll_mutex);
+
     } while (rc == LIBEVDEV_READ_STATUS_SYNC ||
              rc == LIBEVDEV_READ_STATUS_SUCCESS ||
              rc == -EAGAIN);
@@ -232,7 +280,36 @@ gboolean event_widget_poll(const joy_dev_info_t *info)
     close(fd);
     libevdev_free(dev);
 
-    return TRUE;
+    return NULL;
 }
+
+
+
+void event_widget_start_poll(joy_dev_info_t *device)
+{
+    g_mutex_lock(&poll_mutex);
+    if (poll_state.thread == NULL) {
+        char text[256];
+
+        g_snprintf(text, sizeof text, "Polling device %s", device->name);
+        app_window_message(text);
+
+        poll_state.device = device;
+        poll_state.cancel = FALSE;
+        poll_state.thread = g_thread_new("poll", poll_worker, device);
+    }
+    g_mutex_unlock(&poll_mutex);
+}
+
+
+void event_widget_stop_poll(void)
+{
+    g_mutex_lock(&poll_mutex);
+    poll_state.cancel = TRUE;
+    poll_state.thread = NULL;
+    g_mutex_unlock(&poll_mutex);
+}
+
+
 
 

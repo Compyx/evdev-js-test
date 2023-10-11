@@ -10,8 +10,9 @@
 #include "joystick.h"
 
 GtkWidget *event_widget_new(void);
-void       event_widget_set_device(const joy_dev_info_t *device);
+void       event_widget_set_device(joy_dev_info_t *device);
 void       event_widget_clear(void);
-gboolean   event_widget_poll(const joy_dev_info_t *info);
+void       event_widget_start_poll(joy_dev_info_t *device);
+void       event_widget_stop_poll(void);
 
 #endif

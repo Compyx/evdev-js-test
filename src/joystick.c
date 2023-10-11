@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <string.h>
 #include <errno.h>
 #include <limits.h>
 
@@ -560,4 +561,60 @@ bool joy_dev_iter_next(joy_dev_iter_t *iter)
 joy_dev_info_t *joy_dev_iter_get_device_info(joy_dev_iter_t *iter)
 {
     return iter->valid? &(iter->device) : NULL;
+}
+
+
+joy_dev_info_t *joy_dev_info_dup(const joy_dev_info_t *device)
+{
+    unsigned int    i;
+    joy_dev_info_t *newdev;
+
+    newdev = lib_malloc(sizeof *newdev);
+    dev_info_clear(newdev);
+
+    newdev->path = lib_strdup(device->path);
+    newdev->name = lib_strdup(device->name);
+    memcpy(newdev->guid, device->guid, sizeof device->guid);
+    memcpy(newdev->guid_str, device->guid_str, sizeof device->guid_str);
+
+    newdev->bustype     = device->bustype;
+    newdev->vendor      = device->vendor;
+    newdev->product     = device->product;
+    newdev->version     = device->version;
+
+    newdev->num_axes    = device->num_axes;
+    newdev->num_buttons = device->num_buttons;
+    newdev->num_hats    = device->num_hats;
+    newdev->num_balls   = device->num_balls;
+
+    if (device->num_buttons > 0) {
+        newdev->button_map = lib_malloc(device->num_buttons * sizeof *(newdev->button_map));
+        for (i = 0; i < device->num_buttons; i++) {
+            newdev->button_map[i] = device->button_map[i];
+        }
+    }
+    if (device->num_axes > 0) {
+        newdev->axis_map = lib_malloc(device->num_axes * sizeof *(newdev->axis_map));
+        for (i = 0; i < device->num_axes; i++) {
+            newdev->axis_map[i] = device->axis_map[i];
+        }
+    }
+    if (device->num_hats > 0) {
+        newdev->hat_map = lib_malloc(device->num_hats * sizeof *(newdev->hat_map));
+        for (i = 0; i < device->num_hats * 2u; i++) {
+            newdev->hat_map[i] = device->hat_map[i];
+        }
+    }
+    return newdev;
+}
+
+
+/** \brief  Free memory used by a joystick info struct
+ *
+ * \param[in]   info    joystick info
+ */
+void joy_dev_info_free(joy_dev_info_t *device)
+{
+    dev_info_free_data(device);
+    lib_free(device);
 }

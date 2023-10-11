@@ -59,4 +59,7 @@ const char     *joy_get_axis_name(unsigned int code);
 const char     *joy_get_button_name(unsigned int code);
 const char     *joy_get_hat_name(unsigned int code);
 
+joy_dev_info_t *joy_dev_info_dup(const joy_dev_info_t *device);
+void            joy_dev_info_free(joy_dev_info_t *device);
+
 #endif

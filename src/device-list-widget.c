@@ -7,11 +7,13 @@
 #include <stdbool.h>
 #include "app-window.h"
 #include "joystick.h"
+#include "event-widget.h"
 
 #include "device-list-widget.h"
 
 
-static GtkWidget *device_view;
+static GtkWidget      *device_view = NULL;
+static joy_dev_info_t *current_device = NULL;
 
 
 static GString *get_axis_names(const joy_dev_info_t *device)
@@ -134,16 +136,42 @@ static GtkWidget *create_inner_widget(const joy_dev_info_t *device)
     return tree;
 }
 
+static void on_expander_expanded(G_GNUC_UNUSED GObject    *self,
+                                 G_GNUC_UNUSED GParamSpec *param_spec,
+                                               gpointer    data)
+{
+    current_device = data;
+    event_widget_set_device(data);
+}
+
+static void on_expander_destroy(G_GNUC_UNUSED GtkWidget *self, gpointer data)
+{
+    joy_dev_info_free(data);
+}
+
 
 static GtkWidget *box_row_new(const joy_dev_info_t *device)
 {
     GtkWidget *row;
     GtkWidget *expander;
+    joy_dev_info_t *devinfo;
 
+
+    devinfo  = joy_dev_info_dup(device);
     row      = gtk_list_box_row_new();
     expander = gtk_expander_new(device->name);
     gtk_container_add(GTK_CONTAINER(expander), create_inner_widget(device));
     gtk_container_add(GTK_CONTAINER(row), expander);
+
+    g_signal_connect(G_OBJECT(expander),
+                     "notify::expanded",
+                     G_CALLBACK(on_expander_expanded),
+                     (gpointer)devinfo);
+    g_signal_connect(G_OBJECT(expander),
+                     "destroy",
+                     G_CALLBACK(on_expander_destroy),
+                     (gpointer)devinfo);
+
     gtk_widget_show_all(row);
     return row;
 }
@@ -161,6 +189,7 @@ GtkWidget *device_list_widget_new(void)
     GtkWidget *grid;
     GtkWidget *label;
     GtkWidget *scrolled;
+    int        num;
 
     grid = gtk_grid_new();
     gtk_grid_set_column_spacing(GTK_GRID(grid), 16);
@@ -180,23 +209,23 @@ GtkWidget *device_list_widget_new(void)
     device_view = gtk_list_box_new();
     gtk_widget_set_hexpand(scrolled, TRUE);
     gtk_widget_set_vexpand(scrolled, FALSE);
-    gtk_widget_set_size_request(scrolled, -1, 400);
+    gtk_widget_set_size_request(scrolled, -1, 250);
     gtk_container_add(GTK_CONTAINER(scrolled), device_view);
     gtk_grid_attach(GTK_GRID(grid), scrolled, 0, 1, 1, 1);
 
-    //device_list_scan_devices();
+    current_device = NULL;
 
-#if 0
-    g_signal_connect(G_OBJECT(device_view),
-                     "row-activated",
-                     G_CALLBACK(on_row_activated),
-                     NULL);
-#endif
+    g_print("Scanning joystick devices.\n");
+    num = device_list_scan_devices();
+    g_print("Found %d devices.\n", num);
+
     gtk_widget_show_all(grid);
     return grid;
 }
 
 
+/** \brief  Clear device list widget
+ */
 void device_list_clear(void)
 {
     GList *children = gtk_container_get_children(GTK_CONTAINER(device_view));
@@ -209,7 +238,6 @@ void device_list_clear(void)
 }
 
 
-
 /** \brief  Scan for joystick devices and populate list box
  *
  * Use evdev to scan for joystick devices.
@@ -220,25 +248,22 @@ int device_list_scan_devices(void)
 {
     joy_dev_iter_t iter;
     int            num = 0;
-    char           text[256];
 
     device_list_clear();
-    app_window_message("Scanning...");
 
     if (joy_dev_iter_init(&iter, "/dev/input/by-id")) {
         do {
-            GtkWidget *row = box_row_new(joy_dev_iter_get_device_info(&iter));
+            GtkWidget      *row;
 
-            g_snprintf(text, sizeof text, "Found device '%s'.", iter.device.name);
-            app_window_message(text);
+            row = box_row_new(joy_dev_iter_get_device_info(&iter));
             gtk_list_box_insert(GTK_LIST_BOX(device_view), row, -1);
             num++;
         } while (joy_dev_iter_next(&iter));
 
         joy_dev_iter_free(&iter);
+    } else {
+        g_printerr("%s(): no devices found.\n", __func__);
     }
 
     return num;
 }
-
-

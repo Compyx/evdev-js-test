@@ -242,7 +242,23 @@ static gpointer poll_worker(gpointer data)
 
     do {
         struct input_event ev;
-        unsigned int flags = LIBEVDEV_READ_FLAG_NORMAL|LIBEVDEV_READ_FLAG_BLOCKING;
+        unsigned int flags = LIBEVDEV_READ_FLAG_NORMAL;
+
+        while (libevdev_has_event_pending(dev) == 0) {
+            g_mutex_lock(&poll_mutex);
+            if (poll_state.cancel) {
+                printf("Stopped polling.\n");
+                app_window_message("Stopped polling.");
+                close(fd);
+                libevdev_free(dev);
+                poll_state.cancel = FALSE;
+                g_mutex_unlock(&poll_mutex);
+                return NULL;
+            }
+            g_mutex_unlock(&poll_mutex);
+            g_thread_yield();
+            g_usleep(G_USEC_PER_SEC / 60);
+        }
 
         rc = libevdev_next_event(dev, flags, &ev);
         if (rc == LIBEVDEV_READ_STATUS_SYNC) {
@@ -257,17 +273,7 @@ static gpointer poll_worker(gpointer data)
             print_event(&ev);
         }
 
-        g_mutex_lock(&poll_mutex);
-        if (poll_state.cancel) {
-            printf("Stopped polling.\n");
-            app_window_message("Stopped polling.");
-            close(fd);
-            libevdev_free(dev);
-            poll_state.cancel = FALSE;
-            g_mutex_unlock(&poll_mutex);
-            return NULL;
-        }
-        g_mutex_unlock(&poll_mutex);
+
 
     } while (rc == LIBEVDEV_READ_STATUS_SYNC ||
              rc == LIBEVDEV_READ_STATUS_SUCCESS ||

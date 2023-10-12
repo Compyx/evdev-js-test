@@ -30,6 +30,9 @@ typedef struct poll_state_s {
     GThread        *thread;
     joy_dev_info_t *device;
     gboolean        cancel;
+    int             prev_type;
+    int             prev_code;
+    int             prev_value;
 } poll_state_t;
 
 static poll_state_t poll_state;
@@ -41,6 +44,17 @@ static GtkWidget *button_grid;
 static GtkWidget *axis_grid;
 static GtkWidget *hat_grid;
 
+
+
+static void poll_state_init(void)
+{
+    poll_state.thread    = NULL;
+    poll_state.device    = NULL;
+    poll_state.cancel    = FALSE;
+    poll_state.prev_type  = -1;
+    poll_state.prev_code  = -1;
+    poll_state.prev_value = -1;
+}
 
 /** \brief  Create label using Pango markup and setting horizontal alignment
  *
@@ -130,9 +144,7 @@ GtkWidget *event_widget_new(void)
 
     g_mutex_init(&poll_mutex);
     g_mutex_lock(&poll_mutex);
-    poll_state.thread = NULL;
-    poll_state.device = NULL;
-    poll_state.cancel = FALSE;
+    poll_state_init();
     g_mutex_unlock(&poll_mutex);
 
     grid = titled_grid_new("<b>Joystick events</b>", 3, 32, 16);
@@ -185,7 +197,27 @@ void event_widget_set_device(joy_dev_info_t *device)
     }
 
     event_widget_start_poll(device);
+}
 
+
+static void update_button(struct input_event *ev)
+{
+    unsigned int    b;
+    joy_dev_info_t *dev = poll_state.device;
+
+    printf("got code %d, value %d\n", ev->code, ev->value);
+    for (b = 0; dev->num_buttons; b++) {
+        if (ev->code == dev->button_map[b]) {
+            GtkWidget *led = gtk_grid_get_child_at(GTK_GRID(button_grid), 1, (int)b + 1);
+
+            if (led != NULL) {
+                joy_button_widget_set_pressed(led, ev->value);
+                break;
+            } else {
+                g_printerr("No LED for button %03x!\n", ev->code);
+            }
+        }
+    }
 }
 
 
@@ -196,6 +228,24 @@ void event_widget_clear(void)
     titled_grid_clear(button_grid, BUTTON_GRID_COLUMNS);
     titled_grid_clear(axis_grid,   AXIS_GRID_COLUMNS);
     titled_grid_clear(hat_grid,    HAT_GRID_COLUMNS);
+}
+
+
+static void event_widget_update(struct input_event *ev)
+{
+    int type  = ev->type;
+    int code  = ev->code;
+    int value = ev->value;
+
+    g_mutex_lock(&poll_mutex);
+    if (type == EV_KEY) {
+        update_button(ev);
+    }
+
+    poll_state.prev_type  = type;
+    poll_state.prev_code  = code;
+    poll_state.prev_value = value;
+    g_mutex_unlock(&poll_mutex);
 }
 
 
@@ -270,6 +320,7 @@ static gpointer poll_worker(gpointer data)
             }
             printf("=== re-synced ===\n");
         } else if (rc == LIBEVDEV_READ_STATUS_SUCCESS) {
+            event_widget_update(&ev);
             print_event(&ev);
         }
 

@@ -97,4 +97,5 @@ void joy_button_widget_set_pressed(GtkWidget *widget, gboolean pressed)
 {
     btn_state_t *state = get_state(widget);
     state->pressed = pressed;
+    gtk_widget_queue_draw(widget);
 }

@@ -15,6 +15,7 @@
 #include <sys/types.h>
 
 #include "app-window.h"
+#include "axis-widget.h"
 #include "button-widget.h"
 #include "joystick.h"
 
@@ -184,7 +185,7 @@ GtkWidget *event_widget_new(void)
     gtk_grid_attach(GTK_GRID(grid), hat_grid,    2, 1, 1, 1);
 
     stop_btn = gtk_button_new_with_label("Stop polling");
-    gtk_grid_attach(GTK_GRID(grid), stop_btn, 2, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), stop_btn, 0, 2, 3, 1);
     g_signal_connect(G_OBJECT(stop_btn),
                      "clicked",
                      G_CALLBACK(on_stop_polling_clicked),
@@ -211,21 +212,40 @@ void event_widget_clear(void)
  */
 void event_widget_set_device(joy_dev_info_t *device)
 {
-    unsigned int b;
+    GtkWidget    *label;
+    const char   *name;
+    unsigned int  i;
 
     /* Buttons */
     titled_grid_clear(button_grid, BUTTON_GRID_COLUMNS);
-    for (b = 0; b < device->num_buttons; b++) {
+    for (i = 0; i < device->num_buttons; i++) {
         GtkWidget  *button;
-        GtkWidget  *label;
-        const char *name;
 
-        name   = joy_get_button_name(device->button_map[b]);
+        name   = joy_get_button_name(device->button_map[i]);
         label  = label_helper(name, GTK_ALIGN_START);
         button = joy_button_widget_new();
         gtk_widget_set_margin_start(label, 8);
-        gtk_grid_attach(GTK_GRID(button_grid), label,  0, (int)b + 1, 1, 1);
-        gtk_grid_attach(GTK_GRID(button_grid), button, 1, (int)b + 1, 1, 1);
+        gtk_grid_attach(GTK_GRID(button_grid), label,  0, (int)i + 1, 1, 1);
+        gtk_grid_attach(GTK_GRID(button_grid), button, 1, (int)i + 1, 1, 1);
+    }
+
+    /* Axes */
+    titled_grid_clear(axis_grid, AXIS_GRID_COLUMNS);
+//    gtk_widget_set_hexpand(axis_grid, TRUE);
+//    gtk_grid_set_column_homogeneous(GTK_GRID(axis_grid), FALSE);
+    for (i = 0; i < device->num_axes; i++) {
+        GtkWidget *axis;
+
+        name  = joy_get_axis_name(device->axis_map[i]);
+        label = label_helper(name, GTK_ALIGN_START);
+        axis  = joy_axis_widget_new();
+        gtk_widget_set_margin_start(label, 8);
+        gtk_widget_set_hexpand(label, FALSE);
+        gtk_widget_set_halign(axis, GTK_ALIGN_FILL);
+        gtk_widget_set_hexpand(axis, TRUE);
+//        gtk_widget_set_
+        gtk_grid_attach(GTK_GRID(axis_grid), label, 0, (int)i + 1, 1, 1);
+        gtk_grid_attach(GTK_GRID(axis_grid), axis,  1, (int)i + 1, 1, 1);
     }
 
     event_widget_start_poll(device);
@@ -241,7 +261,10 @@ static void update_button(struct input_event *ev)
     unsigned int    b;
     joy_dev_info_t *dev = poll_state.device;
 
-    printf("got code %d, value %d\n", ev->code, ev->value);
+    if (dev == NULL) {
+        return;
+    }
+
     for (b = 0; dev->num_buttons; b++) {
         if (ev->code == dev->button_map[b]) {
             GtkWidget *led = gtk_grid_get_child_at(GTK_GRID(button_grid), 1, (int)b + 1);
@@ -255,6 +278,30 @@ static void update_button(struct input_event *ev)
         }
     }
 }
+
+static void update_axis(struct input_event *ev)
+{
+    unsigned int    i;
+    joy_dev_info_t *dev = poll_state.device;
+
+    if (dev == NULL) {
+        return;
+    }
+
+    for (i = 0; dev->num_axes; i++) {
+        if (ev->code == dev->axis_map[i]) {
+            GtkWidget *axis = gtk_grid_get_child_at(GTK_GRID(axis_grid), 1, (int)i + 1);
+
+            if (axis != NULL) {
+                joy_axis_widget_set_value(axis, ev->value);
+                break;
+            } else {
+                g_printerr("No widget for axis %03x!\n", ev->code);
+            }
+        }
+    }
+}
+
 
 
 /** \brief  Update the event widget with event data
@@ -270,6 +317,8 @@ static void event_widget_update(struct input_event *ev)
     g_mutex_lock(&poll_mutex);
     if (type == EV_KEY) {
         update_button(ev);
+    } else if (type == EV_ABS) {
+        update_axis(ev);
     }
 
     poll_state.prev_type  = type;

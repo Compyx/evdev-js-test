@@ -11,7 +11,7 @@ LDFLAGS = `pkg-config --libs gtk+-3.0 libevdev`
 
 PROG = evdev-js-test
 OBJS = main.o app-window.o device-list-widget.o event-widget.o joystick.o \
-       vice.o button-widget.o
+       vice.o button-widget.o axis-widget.o
 
 $(PROG): $(OBJS)
 	$(LD) -o $@ $^ $(LDFLAGS)

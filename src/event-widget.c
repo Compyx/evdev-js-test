@@ -21,31 +21,49 @@
 #include "event-widget.h"
 
 
+/** \brief  Number of columns in the button state grid */
 #define BUTTON_GRID_COLUMNS 2
+
+/** \brief  Number of columns in the axis state grid */
 #define AXIS_GRID_COLUMNS   2
+
+/** \brief  Number of columns in the hat state grid */
 #define HAT_GRID_COLUMNS    2
 
-
+/** \brief  Polling state object
+ */
 typedef struct poll_state_s {
-    GThread        *thread;
-    joy_dev_info_t *device;
-    gboolean        cancel;
-    int             prev_type;
-    int             prev_code;
-    int             prev_value;
+    GThread        *thread;         /**< worker thread polling events */
+    joy_dev_info_t *device;         /**< device to poll */
+    gboolean        cancel;         /**< cancel polling (end thread) */
+    int             prev_type;      /**< previous value of event type */
+    int             prev_code;      /**< previous value of event code */
+    int             prev_value;     /**< previous value of event value */
 } poll_state_t;
 
-static poll_state_t poll_state;
-static GMutex       poll_mutex;
+
+/** \brief  Polling state
+ *
+ * Object for the UI thread and the polling thread to communicate. Only to be
+ * accessed after obtaining a lock via \c poll_mutex.
+ */
+static poll_state_t  poll_state;
+
+/** \brief  Mutex controlling access to the poll state object */
+static GMutex        poll_mutex;
+
+/** \brief  Grid containing button state widgets */
+static GtkWidget    *button_grid;
+
+/** \brief  Grid containing axis state widgets */
+static GtkWidget    *axis_grid;
+
+/** \brief  Grid containing hat state widgets */
+static GtkWidget    *hat_grid;
 
 
-
-static GtkWidget *button_grid;
-static GtkWidget *axis_grid;
-static GtkWidget *hat_grid;
-
-
-
+/** \brief  Initialize polling state
+ */
 static void poll_state_init(void)
 {
     poll_state.thread    = NULL;
@@ -127,9 +145,13 @@ static void titled_grid_clear(GtkWidget *grid, int columns)
     } while (!row_empty);
 }
 
-
+/** \brief  Handler for the 'clicked' event of the "Stop polling" button
+ *
+ * \param[in]   self    button (unused)
+ * \param[in]   data    extra event data (unused)
+ */
 static void on_stop_polling_clicked(G_GNUC_UNUSED GtkButton *self,
-                                    G_GNUC_UNUSED gpointer data)
+                                    G_GNUC_UNUSED gpointer   data)
 {
     event_widget_stop_poll();
 }
@@ -173,6 +195,16 @@ GtkWidget *event_widget_new(void)
 }
 
 
+/** \brief  Remove all button, axis and hat widgets from the event widget
+ */
+void event_widget_clear(void)
+{
+    titled_grid_clear(button_grid, BUTTON_GRID_COLUMNS);
+    titled_grid_clear(axis_grid,   AXIS_GRID_COLUMNS);
+    titled_grid_clear(hat_grid,    HAT_GRID_COLUMNS);
+}
+
+
 /** \brief  Set device to display events for
  *
  * \param[in]   device  joystick device
@@ -200,6 +232,10 @@ void event_widget_set_device(joy_dev_info_t *device)
 }
 
 
+/** \brief  Update a button state with event data
+ *
+ * \param[in]   ev  event data
+ */
 static void update_button(struct input_event *ev)
 {
     unsigned int    b;
@@ -221,16 +257,10 @@ static void update_button(struct input_event *ev)
 }
 
 
-/** \brief  Remove all button, axis and hat widgets from the event widget
+/** \brief  Update the event widget with event data
+ *
+ * \param[in]   ev  event data
  */
-void event_widget_clear(void)
-{
-    titled_grid_clear(button_grid, BUTTON_GRID_COLUMNS);
-    titled_grid_clear(axis_grid,   AXIS_GRID_COLUMNS);
-    titled_grid_clear(hat_grid,    HAT_GRID_COLUMNS);
-}
-
-
 static void event_widget_update(struct input_event *ev)
 {
     int type  = ev->type;
@@ -248,7 +278,10 @@ static void event_widget_update(struct input_event *ev)
     g_mutex_unlock(&poll_mutex);
 }
 
-
+/** \brief  Debug hook: print event data to stdout
+ *
+ * \param[in]   ev  event data
+ */
 static void print_event(struct input_event *ev)
 {
     if (ev->type == EV_SYN) {
@@ -268,7 +301,12 @@ static void print_event(struct input_event *ev)
     }
 }
 
-
+/** \brief  Worker thread polling joystick events
+ *
+ * \param[in]   data    joystick device info
+ *
+ * \return  \c NULL
+ */
 static gpointer poll_worker(gpointer data)
 {
     int              fd;
@@ -341,7 +379,10 @@ static gpointer poll_worker(gpointer data)
 }
 
 
-
+/** \brief  Start worker thread polling joystick events
+ *
+ * \param[in]   device  joystick device info
+ */
 void event_widget_start_poll(joy_dev_info_t *device)
 {
     g_mutex_lock(&poll_mutex);
@@ -359,6 +400,8 @@ void event_widget_start_poll(joy_dev_info_t *device)
 }
 
 
+/** \brief  Stop worker thread polling joystick events
+ */
 void event_widget_stop_poll(void)
 {
     g_mutex_lock(&poll_mutex);
@@ -366,7 +409,3 @@ void event_widget_stop_poll(void)
     poll_state.thread = NULL;
     g_mutex_unlock(&poll_mutex);
 }
-
-
-
-

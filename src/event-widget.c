@@ -236,7 +236,7 @@ void event_widget_set_device(joy_dev_info_t *device)
     for (i = 0; i < device->num_axes; i++) {
         GtkWidget *axis;
 
-        name  = joy_get_axis_name(device->axis_map[i]);
+        name  = joy_get_axis_name(device->axis_map[i].code);
         label = label_helper(name, GTK_ALIGN_START);
         axis  = joy_axis_widget_new();
         gtk_widget_set_margin_start(label, 8);
@@ -289,7 +289,7 @@ static void update_axis(struct input_event *ev)
     }
 
     for (i = 0; dev->num_axes; i++) {
-        if (ev->code == dev->axis_map[i]) {
+        if (ev->code == dev->axis_map[i].code) {
             GtkWidget *axis = gtk_grid_get_child_at(GTK_GRID(axis_grid), 1, (int)i + 1);
 
             if (axis != NULL) {

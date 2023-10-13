@@ -18,12 +18,14 @@ static joy_dev_info_t *current_device = NULL;
 
 static GString *get_axis_names(const joy_dev_info_t *device)
 {
-    GString      *names;
-    unsigned int  i;
+    GString        *names;
+    unsigned int    i;
 
     names = g_string_new(NULL);
     for (i = 0; i < device->num_axes; i++) {
-        g_string_append(names, joy_get_axis_name(device->axis_map[i]));
+        joy_abs_info_t *abs_info = &(device->axis_map[i]);
+
+        g_string_append(names, joy_get_axis_name(abs_info->code));
         if (i < device->num_axes - 1u) {
             g_string_append(names, ", ");
         }
@@ -54,7 +56,9 @@ static GString *get_hat_names(const joy_dev_info_t *device)
     names = g_string_new(NULL);
     for (i = 0; i < device->num_hats; i++) {
         /* i*2 since each hat has two axes, hat NAME is same for X and Y axis */
-        g_string_append(names, joy_get_hat_name(device->hat_map[i * 2]));
+        joy_abs_info_t *abs_info = &(device->hat_map[i * 2]);
+
+        g_string_append(names, joy_get_hat_name(abs_info->code));
         if (i < device->num_hats - 1u) {
             g_string_append(names, ", ");
         }

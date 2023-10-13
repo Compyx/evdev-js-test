@@ -199,6 +199,15 @@ const char *joy_get_hat_name(unsigned int code)
     return "<?>";
 }
 
+static void abs_info_clear(joy_abs_info_t *info)
+{
+    info->code       = 0;
+    info->minimum    = 0;
+    info->maximum    = 0;
+    info->fuzz       = 0;
+    info->flat       = 0;
+    info->resolution = 0;
+}
 
 /** \brief  Clear joystick info struct
  *
@@ -362,25 +371,37 @@ static void dev_info_scan_axes_and_hats(joy_dev_info_t *info, struct libevdev *d
         info->num_axes = (uint16_t)num_axes;
         info->num_hats = (uint16_t)num_hats / 2u;
 
-        info->axis_map = lib_calloc(num_axes, sizeof *(info->axis_map));
-        info->hat_map  = lib_calloc(num_hats, sizeof *(info->hat_map));
+        info->axis_map = lib_malloc(num_axes * sizeof *(info->axis_map));
+        info->hat_map  = lib_malloc(num_hats * sizeof *(info->hat_map));
 
         num_axes = 0;
         num_hats = 0;
         for (code = ABS_X; code < ABS_RESERVED; code++) {
             if (libevdev_has_event_code(dev, EV_ABS, code)) {
+                const struct input_absinfo *abs_evdev;
+                joy_abs_info_t             *abs_vice;
+
+                abs_evdev = libevdev_get_abs_info(dev, code);
+
                 if (is_hat_code(code)) {
-#if 0
-                    printf("<debug> hat axis %u: %04x %s\n",
-                           num_hats, code, libevdev_event_code_get_name(EV_ABS, code));
-#endif
-                    info->hat_map[num_hats++] = (uint16_t)code;
+                    abs_vice = &(info->hat_map[num_hats]);
+                    num_hats++;
                 } else {
-#if 0
-                    printf("<debug> axis %u: %04x %s\n",
-                           num_axes, code, libevdev_event_code_get_name(EV_ABS, code));
-#endif
-                    info->axis_map[num_axes++] = (uint16_t)code;
+                    abs_vice = &(info->axis_map[num_axes]);
+                    num_axes++;
+                }
+
+                abs_info_clear(abs_vice);
+                abs_vice->code = (uint16_t)code;
+                if (abs_evdev != NULL) {
+                    abs_vice->minimum    = abs_evdev->minimum;
+                    abs_vice->maximum    = abs_evdev->maximum;
+                    abs_vice->fuzz       = abs_evdev->fuzz;
+                    abs_vice->flat       = abs_evdev->flat;
+                    abs_vice->resolution = abs_evdev->resolution;
+                } else {
+                    abs_vice->minimum = INT16_MIN;
+                    abs_vice->maximum = INT16_MAX;
                 }
             }
         }
@@ -600,7 +621,7 @@ joy_dev_info_t *joy_dev_info_dup(const joy_dev_info_t *device)
         }
     }
     if (device->num_hats > 0) {
-        newdev->hat_map = lib_malloc(device->num_hats * sizeof *(newdev->hat_map));
+        newdev->hat_map = lib_malloc(device->num_hats * 2u * sizeof *(newdev->hat_map));
         for (i = 0; i < device->num_hats * 2u; i++) {
             newdev->hat_map[i] = device->hat_map[i];
         }

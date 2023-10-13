@@ -16,28 +16,38 @@
 #define JOY_GUID_SIZE           16
 
 
+typedef struct joy_abs_info_s {
+    uint16_t code;
+    int32_t  minimum;
+    int32_t  maximum;
+    int32_t  fuzz;
+    int32_t  flat;
+    int32_t  resolution;
+} joy_abs_info_t;
+
 
 typedef struct joy_dev_info_s {
-    char     *path;     /**< evdev device node path */
-    char     *name;     /**< evdev device name */
+    char           *path;           /**< evdev device node path */
+    char           *name;           /**< evdev device name */
 
-    uint8_t   guid[JOY_GUID_SIZE];              /**< 128-bit little-endian GUID */
-    char      guid_str[JOY_GUID_SIZE * 2 + 1];  /**< GUID as hex string */
+    uint8_t         guid[JOY_GUID_SIZE];              /**< 128-bit LE GUID */
+    char            guid_str[JOY_GUID_SIZE * 2 + 1];  /**< GUID as hex string */
 
-    uint16_t  bustype;  /**< evdev device bus type ID */
-    uint16_t  vendor;   /**< evdev device vendor ID */
-    uint16_t  product;  /**< evdev device product ID */
-    uint16_t  version;  /**< evdev device version number */
+    uint16_t        bustype;        /**< evdev device bus type ID */
+    uint16_t        vendor;         /**< evdev device vendor ID */
+    uint16_t        product;        /**< evdev device product ID */
+    uint16_t        version;        /**< evdev device version number */
 
-    uint16_t  num_axes;     /**< number of axes */
-    uint16_t  num_buttons;  /**< number of buttons */
-    uint16_t  num_hats;     /**< number of hats */
-    uint16_t  num_balls;    /**< number of balls */
+    uint16_t        num_axes;       /**< number of axes */
+    uint16_t        num_buttons;    /**< number of buttons */
+    uint16_t        num_hats;       /**< number of hats */
+    uint16_t        num_balls;      /**< number of balls */
 
-    uint16_t *button_map;   /**< button codes */
-    uint16_t *axis_map;     /**< axes codes */
-    uint16_t *hat_map;      /**< axes codes of the hats in X/Y order, so the
-                                 size of this array is \c num_hats*2 */
+    uint16_t       *button_map;     /**< button codes */
+    joy_abs_info_t *axis_map;       /**< axis data */
+    joy_abs_info_t *hat_map;        /**< axis data of the hats in X/Y order,
+                                         so the size of this array is
+                                         \c num_hats*2 */
 } joy_dev_info_t;
 
 

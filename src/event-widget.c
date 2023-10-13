@@ -231,19 +231,20 @@ void event_widget_set_device(joy_dev_info_t *device)
 
     /* Axes */
     titled_grid_clear(axis_grid, AXIS_GRID_COLUMNS);
-//    gtk_widget_set_hexpand(axis_grid, TRUE);
-//    gtk_grid_set_column_homogeneous(GTK_GRID(axis_grid), FALSE);
     for (i = 0; i < device->num_axes; i++) {
         GtkWidget *axis;
+        int32_t    min_;
+        int32_t    max_;
 
         name  = joy_get_axis_name(device->axis_map[i].code);
+        min_  = device->axis_map[i].minimum;
+        max_  = device->axis_map[i].maximum;
         label = label_helper(name, GTK_ALIGN_START);
-        axis  = joy_axis_widget_new();
+        axis  = joy_axis_widget_new(min_, max_);
         gtk_widget_set_margin_start(label, 8);
         gtk_widget_set_hexpand(label, FALSE);
         gtk_widget_set_halign(axis, GTK_ALIGN_FILL);
         gtk_widget_set_hexpand(axis, TRUE);
-//        gtk_widget_set_
         gtk_grid_attach(GTK_GRID(axis_grid), label, 0, (int)i + 1, 1, 1);
         gtk_grid_attach(GTK_GRID(axis_grid), axis,  1, (int)i + 1, 1, 1);
     }

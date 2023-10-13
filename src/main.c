@@ -5,6 +5,7 @@
 
 #include <gtk/gtk.h>
 #include "app-window.h"
+#include "axis-widget.h"
 
 
 static void on_app_activate(GtkApplication *app, G_GNUC_UNUSED gpointer data)
@@ -19,6 +20,8 @@ static void on_app_activate(GtkApplication *app, G_GNUC_UNUSED gpointer data)
 static void on_app_shutdown(G_GNUC_UNUSED GtkApplication *app, G_GNUC_UNUSED gpointer data)
 {
     g_print("Shutting down.\n");
+    /* unref reusable CSS provider */
+    joy_axis_widget_shutdown();
 }
 
 

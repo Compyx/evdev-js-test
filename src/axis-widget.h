@@ -9,7 +9,8 @@
 #include <gtk/gtk.h>
 #include <stdint.h>
 
-GtkWidget *joy_axis_widget_new(int32_t minimum, int32_t maximum);
+GtkWidget *joy_axis_widget_new      (int32_t minimum, int32_t maximum);
 void       joy_axis_widget_set_value(GtkWidget *widget, int32_t value);
+void       joy_axis_widget_shutdown (void);
 
 #endif

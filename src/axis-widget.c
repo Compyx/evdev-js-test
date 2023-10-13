@@ -78,3 +78,12 @@ void joy_axis_widget_set_value(GtkWidget *widget, int32_t value)
 {
     gtk_range_set_value(GTK_RANGE(widget), (double)value);
 }
+
+
+/* call on program exit */
+void joy_axis_widget_shutdown(void)
+{
+    if (provider != NULL) {
+        g_object_unref(provider);
+    }
+}

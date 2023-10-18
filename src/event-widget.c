@@ -36,7 +36,7 @@
 typedef struct poll_state_s {
     GThread        *thread;         /**< worker thread polling events */
     joy_dev_info_t *device;         /**< device to poll */
-    gboolean        cancel;         /**< cancel polling (end thread) */
+    gboolean        polling;        /**< worker thread is polling */
     int             prev_type;      /**< previous value of event type */
     int             prev_code;      /**< previous value of event code */
     int             prev_value;     /**< previous value of event value */
@@ -45,8 +45,9 @@ typedef struct poll_state_s {
 
 /** \brief  Polling state
  *
- * Object for the UI thread and the polling thread to communicate. Only to be
- * accessed after obtaining a lock via \c poll_mutex.
+ * Object for the UI thread and the polling thread to communicate.
+ * Only to be accessed through calling \c poll_state_obtain() and
+ * \c poll_state_release().
  */
 static poll_state_t  poll_state;
 
@@ -67,12 +68,32 @@ static GtkWidget    *hat_grid;
  */
 static void poll_state_init(void)
 {
-    poll_state.thread    = NULL;
-    poll_state.device    = NULL;
-    poll_state.cancel    = FALSE;
+    g_mutex_init(&poll_mutex);
+    g_mutex_lock(&poll_mutex);
+    poll_state.thread     = NULL;
+    poll_state.device     = NULL;
+    poll_state.polling    = FALSE;
     poll_state.prev_type  = -1;
     poll_state.prev_code  = -1;
     poll_state.prev_value = -1;
+    g_mutex_unlock(&poll_mutex);
+}
+
+/** \brief  Obtain lock on poll state
+ *
+ * \return  poll state
+ */
+static poll_state_t *poll_state_obtain(void)
+{
+    g_mutex_lock(&poll_mutex);
+    return &poll_state;
+}
+
+/** \brief  Release lock on poll state
+ */
+static void poll_state_release(void)
+{
+    g_mutex_unlock(&poll_mutex);
 }
 
 /** \brief  Create label using Pango markup and setting horizontal alignment
@@ -165,10 +186,7 @@ GtkWidget *event_widget_new(void)
     GtkWidget *grid;
     GtkWidget *stop_btn;
 
-    g_mutex_init(&poll_mutex);
-    g_mutex_lock(&poll_mutex);
     poll_state_init();
-    g_mutex_unlock(&poll_mutex);
 
     grid = titled_grid_new("<b>Joystick events</b>", 3, 32, 16);
     gtk_grid_set_column_homogeneous(GTK_GRID(grid), TRUE);
@@ -305,29 +323,27 @@ static void update_axis(struct input_event *ev)
     }
 }
 
-
-
 /** \brief  Update the event widget with event data
  *
  * \param[in]   ev  event data
  */
 static void event_widget_update(struct input_event *ev)
 {
-    int type  = ev->type;
-    int code  = ev->code;
-    int value = ev->value;
+    int           type  = ev->type;
+    int           code  = ev->code;
+    int           value = ev->value;
+    poll_state_t *state = poll_state_obtain();
 
-    g_mutex_lock(&poll_mutex);
     if (type == EV_KEY) {
         update_button(ev);
     } else if (type == EV_ABS) {
         update_axis(ev);
     }
 
-    poll_state.prev_type  = type;
-    poll_state.prev_code  = code;
-    poll_state.prev_value = value;
-    g_mutex_unlock(&poll_mutex);
+    state->prev_type  = type;
+    state->prev_code  = code;
+    state->prev_value = value;
+    poll_state_release();
 }
 
 /** \brief  Debug hook: print event data to stdout
@@ -385,16 +401,18 @@ static gpointer poll_worker(gpointer data)
         unsigned int flags = LIBEVDEV_READ_FLAG_NORMAL;
 
         while (libevdev_has_event_pending(dev) == 0) {
-            g_mutex_lock(&poll_mutex);
-            if (poll_state.cancel) {
-                printf("Stopped polling.\n");
+            poll_state_t *state;
+
+            state = poll_state_obtain();
+            if (!state->polling) {
+                printf("Stopping polling.\n");
                 app_window_message("Stopped polling.");
                 close(fd);
                 libevdev_free(dev);
-                g_mutex_unlock(&poll_mutex);
+                poll_state_release();
                 return NULL;
             }
-            g_mutex_unlock(&poll_mutex);
+            poll_state_release();
             g_thread_yield();
             g_usleep(G_USEC_PER_SEC / 60);
         }
@@ -436,18 +454,30 @@ static gpointer poll_worker(gpointer data)
  */
 void event_widget_start_poll(joy_dev_info_t *device)
 {
-    g_mutex_lock(&poll_mutex);
-    if (poll_state.thread == NULL) {
+    poll_state_t *state;
+
+    g_print("Waiting for cancel to be FALSE\n");
+    while (TRUE) {
+        state = poll_state_obtain();
+        if (!state->polling) {
+            g_print("OK:\n");
+            break;
+        }
+        poll_state_release();
+        g_usleep(1000);
+    }
+
+    if (state->thread == NULL) {
         char text[256];
 
         g_snprintf(text, sizeof text, "Polling device %s", device->name);
         app_window_message(text);
 
-        poll_state.device = device;
-        poll_state.cancel = FALSE;
-        poll_state.thread = g_thread_new("poll", poll_worker, device);
+        state->device  = device;
+        state->polling = TRUE;
+        state->thread  = g_thread_new("poll", poll_worker, device);
     }
-    g_mutex_unlock(&poll_mutex);
+    poll_state_release();
 }
 
 
@@ -455,8 +485,8 @@ void event_widget_start_poll(joy_dev_info_t *device)
  */
 void event_widget_stop_poll(void)
 {
-    g_mutex_lock(&poll_mutex);
-    poll_state.cancel = TRUE;
-    poll_state.thread = NULL;
+    poll_state_t *state = poll_state_obtain();
+    state->polling = FALSE;
+    state->thread  = NULL;
     g_mutex_unlock(&poll_mutex);
 }

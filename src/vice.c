@@ -29,6 +29,16 @@ void *lib_calloc(size_t nmemb, size_t size)
     return ptr;
 }
 
+void *lib_realloc(void *ptr, size_t size)
+{
+    void *tmp = realloc(ptr, size);
+    if (tmp == NULL) {
+        fprintf(stderr, "fatal: failed to reallocate %zu bytes\n", size);
+        exit(1);
+    }
+    return tmp;
+}
+
 void lib_free(void *ptr)
 {
     free(ptr);

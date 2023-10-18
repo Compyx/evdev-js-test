@@ -60,16 +60,21 @@ typedef struct joy_dev_iter_s {
 } joy_dev_iter_t;
 
 
-bool            joy_dev_iter_init           (joy_dev_iter_t *iter, const char *path);
-void            joy_dev_iter_free           (joy_dev_iter_t *iter);
-bool            joy_dev_iter_next           (joy_dev_iter_t *iter);
-joy_dev_info_t *joy_dev_iter_get_device_info(joy_dev_iter_t *iter);
+bool             joy_dev_iter_init           (joy_dev_iter_t *iter, const char *path);
+void             joy_dev_iter_free           (joy_dev_iter_t *iter);
+bool             joy_dev_iter_next           (joy_dev_iter_t *iter);
+joy_dev_info_t  *joy_dev_iter_get_device_info(joy_dev_iter_t *iter);
 
-const char     *joy_get_axis_name(unsigned int code);
-const char     *joy_get_button_name(unsigned int code);
-const char     *joy_get_hat_name(unsigned int code);
+const char      *joy_get_axis_name(unsigned int code);
+const char      *joy_get_button_name(unsigned int code);
+const char      *joy_get_hat_name(unsigned int code);
 
-joy_dev_info_t *joy_dev_info_dup(const joy_dev_info_t *device);
-void            joy_dev_info_free(joy_dev_info_t *device);
+joy_dev_info_t  *joy_dev_info_dup(const joy_dev_info_t *device);
+void             joy_dev_info_free(joy_dev_info_t *device);
+
+int              joy_scan_devices(const char *path, joy_dev_info_t ***devices);
+joy_dev_info_t **joy_get_devices_list(void);
+int              joy_get_devices_count(void);
+void             joy_free_devices_list(void);
 
 #endif

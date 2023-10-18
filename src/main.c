@@ -6,6 +6,7 @@
 #include <gtk/gtk.h>
 #include "app-window.h"
 #include "axis-widget.h"
+#include "joystick.h"
 
 
 static void on_app_activate(GtkApplication *app, G_GNUC_UNUSED gpointer data)
@@ -36,6 +37,9 @@ int main(int argc, char *argv[])
 {
     GtkApplication *app;
     int             status;
+
+    joy_scan_devices("/dev/input/by-id", NULL);
+    joy_free_devices_list();
 
     app = gtk_application_new("io.github.compyx.evdev-js-test",
                               G_APPLICATION_DEFAULT_FLAGS);

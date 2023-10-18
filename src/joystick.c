@@ -136,6 +136,9 @@ static const ev_code_name_t hat_names[] = {
 };
 
 
+static joy_dev_info_t **devices_list;
+static int              devices_count;
+
 
 /** \brief  Get axis name for event code
  *
@@ -199,6 +202,10 @@ const char *joy_get_hat_name(unsigned int code)
     return "<?>";
 }
 
+/** \brief  Clear info on an absolute event
+ *
+ * \param[in]   info    absolute event object
+ */
 static void abs_info_clear(joy_abs_info_t *info)
 {
     info->code       = 0;
@@ -621,6 +628,7 @@ joy_dev_info_t *joy_dev_info_dup(const joy_dev_info_t *device)
         }
     }
     if (device->num_hats > 0) {
+        /* num_hat * 2 since each hat consists of two axes */
         newdev->hat_map = lib_malloc(device->num_hats * 2u * sizeof *(newdev->hat_map));
         for (i = 0; i < device->num_hats * 2u; i++) {
             newdev->hat_map[i] = device->hat_map[i];
@@ -636,6 +644,197 @@ joy_dev_info_t *joy_dev_info_dup(const joy_dev_info_t *device)
  */
 void joy_dev_info_free(joy_dev_info_t *device)
 {
-    dev_info_free_data(device);
-    lib_free(device);
+    if (device != NULL) {dev_info_free_data(device);
+        lib_free(device);
+    }
+}
+
+
+static char *sd_get_full_path(const char *root, size_t root_len, const char *name)
+{
+    char   *fullpath;
+    size_t  nlen = strlen(name);
+
+    if (root == NULL || *root == '\0') {
+        fullpath = lib_malloc(nlen + 2u);
+        fullpath[0] = '/';
+        memcpy(fullpath + 1, name, nlen + 1u);
+    } else {
+        size_t rlen;
+
+        if (root[root_len - 1u] == '/') {
+            rlen = root_len - 1u;
+        } else {
+            rlen = root_len;
+        }
+        fullpath = lib_malloc(rlen + nlen + 2u);
+        memcpy(fullpath, root, rlen);
+        fullpath[rlen] = '/';
+        memcpy(fullpath + rlen + 1, name, nlen + 1u);
+    }
+
+    return fullpath;
+}
+
+static int sd_filter(const struct dirent *entry)
+{
+    const char *name;
+    size_t      nlen;
+    size_t      slen;
+
+    name = entry->d_name;
+    nlen = strlen(entry->d_name);
+    slen = strlen(JOY_UDEV_SUFFIX);
+
+    if ((nlen > slen) && memcmp(name + nlen - slen, JOY_UDEV_SUFFIX, slen) == 0) {
+        return 1;
+    }
+    return 0;
+}
+
+
+static bool sd_get_dev_info(joy_dev_info_t *info)
+{
+    struct libevdev *dev;
+    int              fd;
+    int              rc;
+
+    fd = open(info->path, O_RDONLY|O_NONBLOCK);
+    if (fd < 0) {
+        fprintf(stderr,
+                "error: failed to open %s: %s\n",
+                info->path, strerror(errno));
+        return false;
+    }
+    rc = libevdev_new_from_fd(fd, &dev);
+    if (rc < 0) {
+        fprintf(stderr, "failed to initialize evdev: %s\n", strerror(-rc));
+        close(fd);
+        return false;
+    }
+
+    /* get device name */
+    info->name = lib_strdup(libevdev_get_name(dev));
+
+    /* get bus, vendor, product and version */
+    info->bustype = (uint16_t)libevdev_get_id_bustype(dev);
+    info->vendor  = (uint16_t)libevdev_get_id_vendor(dev);
+    info->product = (uint16_t)libevdev_get_id_product(dev);
+    info->version = (uint16_t)libevdev_get_id_version(dev);
+
+    /* generate 128 bit GUID and string version thereof */
+    dev_info_generate_guid(info);
+    dev_info_generate_guid_str(info);
+
+    dev_info_scan_buttons(info, dev);
+    dev_info_scan_axes_and_hats(info, dev);
+
+    libevdev_free(dev);
+    close(fd);
+    return true;
+}
+
+
+/** \brief  Scan connected joystick devices
+ *
+ * \param[in]   path    kernel virtual filesystem path with device nodes
+ *
+ * \return  number of devices found, or -1 on error
+ */
+int joy_scan_devices(const char *path, joy_dev_info_t ***devices)
+{
+    struct dirent **namelist;
+    int             d;  /* device index */
+    int             i;  /* info index */
+    size_t          root_len;
+
+    root_len = path != NULL ? strlen(path) : 0;
+
+    if (devices_list != NULL) {
+        /* previous list of scanned devices */
+        joy_free_devices_list();
+        devices_list = NULL;
+    }
+
+    devices_count = scandir(path == NULL ? "" : path, &namelist, sd_filter, NULL);
+    if (devices_count < 0) {
+        /* error */
+        fprintf(stderr, "failed to scan devices: %s\n", strerror(errno));
+        return -1;
+    } else if (devices_count == 0) {
+        if (devices != NULL) {
+            *devices = NULL;
+        }
+        return 0;
+    }
+
+    devices_list = lib_malloc(((size_t)devices_count + 1u) * sizeof *devices_list);
+    for (d = 0; d < devices_count + 1; d++) {
+        devices_list[d] = NULL;
+    }
+
+    i = 0;
+    for (d = 0; d < devices_count; d++) {
+        joy_dev_info_t *info;
+
+        info = lib_malloc(sizeof *info);
+        dev_info_clear(info);
+        info->path = sd_get_full_path(path, root_len, namelist[i]->d_name);
+
+        if (sd_get_dev_info(info)) {
+            devices_list[i++] = info;
+        } else {
+            lib_free(info->path);
+            lib_free(info);
+        }
+
+        free(namelist[i]);
+    }
+    free(namelist);
+
+    devices_list[i] = NULL;
+    if (devices != NULL) {
+        *devices = devices_list;
+    }
+    return devices_count;
+}
+
+
+/** \brief  Get devices list
+ *
+ * Get devices list generated by \c joy_scan_devices().
+ *
+ * \return  list of joystick devices
+ */
+joy_dev_info_t **joy_get_devices_list(void)
+{
+    return devices_list;
+}
+
+
+/** \brief  Get number of joystick devices
+ *
+* Get number of joystick devices as found by \c joy_scan_devices().
+*
+* \return   number of devices
+*/
+int joy_get_devices_count(void)
+{
+    return devices_count;
+}
+
+
+/** \brief  Free memory used by the devices list
+ */
+void joy_free_devices_list(void)
+{
+    if (devices_list != NULL) {
+        int i;
+
+        for (i = 0; i < devices_count; i++) {
+            joy_dev_info_free(devices_list[i]);
+        }
+    }
+    devices_list  = NULL;
+    devices_count = 0;
 }

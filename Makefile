@@ -1,7 +1,7 @@
 LD=$(CC)
 VPATH=src
 
-CFLAGS = -D_XOPEN_SOURCE=600 -O2 -g -Wall -Wextra -std=c99 \
+CFLAGS = -D_XOPEN_SOURCE=700 -O2 -g -Wall -Wextra -std=c99 \
 	 -Wcast-qual -Wshadow -Wconversion -Wsign-compare \
 	 -Wformat -Wformat-security -Wmissing-prototypes -Wstrict-prototypes \
 	 `pkg-config --cflags gtk+-3.0 libevdev`

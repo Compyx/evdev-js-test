@@ -51,20 +51,6 @@ typedef struct joy_dev_info_s {
 } joy_dev_info_t;
 
 
-typedef struct joy_dev_iter_s {
-    DIR            *dirp;
-    char           *root;
-    size_t          root_len;
-    bool            valid;
-    joy_dev_info_t  device;
-} joy_dev_iter_t;
-
-
-bool             joy_dev_iter_init           (joy_dev_iter_t *iter, const char *path);
-void             joy_dev_iter_free           (joy_dev_iter_t *iter);
-bool             joy_dev_iter_next           (joy_dev_iter_t *iter);
-joy_dev_info_t  *joy_dev_iter_get_device_info(joy_dev_iter_t *iter);
-
 const char      *joy_get_axis_name(unsigned int code);
 const char      *joy_get_button_name(unsigned int code);
 const char      *joy_get_hat_name(unsigned int code);

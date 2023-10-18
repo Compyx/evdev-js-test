@@ -12,8 +12,10 @@
 #include "device-list-widget.h"
 
 
-static GtkWidget      *device_view = NULL;
-static joy_dev_info_t *current_device = NULL;
+static GtkWidget       *device_view = NULL;
+static joy_dev_info_t **scanned_devices = NULL;
+static joy_dev_info_t  *current_device = NULL;
+
 
 
 static GString *get_axis_names(const joy_dev_info_t *device)
@@ -148,9 +150,10 @@ static void on_expander_expanded(G_GNUC_UNUSED GObject    *self,
     event_widget_set_device(data);
 }
 
-static void on_expander_destroy(G_GNUC_UNUSED GtkWidget *self, gpointer data)
+static void on_expander_destroy(G_GNUC_UNUSED GtkWidget *self,
+                                G_GNUC_UNUSED gpointer data)
 {
-    joy_dev_info_free(data);
+//    joy_dev_info_free(data);
 }
 
 
@@ -180,6 +183,15 @@ static GtkWidget *box_row_new(const joy_dev_info_t *device)
     return row;
 }
 
+
+static void on_device_list_widget_destroy(G_GNUC_UNUSED GtkWidget *self,
+                                          G_GNUC_UNUSED gpointer data)
+{
+    if (scanned_devices != NULL) {
+        joy_free_devices_list();
+        scanned_devices = NULL;
+    }
+}
 
 /** \brief  Create widget to list joystick devices
  *
@@ -221,7 +233,18 @@ GtkWidget *device_list_widget_new(void)
 
     g_print("Scanning joystick devices.\n");
     num = device_list_scan_devices();
-    g_print("Found %d devices.\n", num);
+    if (num == 0) {
+        g_print("No devices found.\n");
+    } else if (num == 1) {
+        g_print("Found 1 device.\n");
+    } else {
+        g_print("Found %d devices.\n", num);
+    }
+
+    g_signal_connect(G_OBJECT(grid),
+                     "destroy",
+                     G_CALLBACK(on_device_list_widget_destroy),
+                     NULL);
 
     gtk_widget_show_all(grid);
     return grid;
@@ -250,11 +273,17 @@ void device_list_clear(void)
  */
 int device_list_scan_devices(void)
 {
-    joy_dev_iter_t iter;
-    int            num = 0;
+//    joy_dev_iter_t iter;
+    int            num;
+    int            i;
+
+    if (scanned_devices != NULL) {
+        joy_free_devices_list();
+    }
+    num = joy_scan_devices("/dev/input/by-id", &scanned_devices);
 
     device_list_clear();
-
+#if 0
     if (joy_dev_iter_init(&iter, "/dev/input/by-id")) {
         do {
             GtkWidget      *row;
@@ -268,6 +297,12 @@ int device_list_scan_devices(void)
     } else {
         g_printerr("%s(): no devices found.\n", __func__);
     }
+#endif
+    for (i = 0; i < num; i++) {
+        GtkWidget *row = box_row_new(scanned_devices[i]);
+        gtk_list_box_insert(GTK_LIST_BOX(device_view), row, -1);
+    }
+
 
     return num;
 }

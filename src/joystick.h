@@ -16,6 +16,12 @@
 #define JOY_GUID_SIZE           16
 
 
+typedef enum {
+    JOY_SORT_GUID,
+    JOY_SORT_NAME,
+    JOY_SORT_NODE
+} joy_sort_field_t;
+
 typedef struct joy_abs_info_s {
     uint16_t code;
     int32_t  minimum;
@@ -62,5 +68,6 @@ int              joy_scan_devices(const char *path, joy_dev_info_t ***devices);
 joy_dev_info_t **joy_get_devices_list(void);
 int              joy_get_devices_count(void);
 void             joy_free_devices_list(void);
+void             joy_sort_devices_list(joy_sort_field_t field);
 
 #endif

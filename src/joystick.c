@@ -610,8 +610,7 @@ int joy_scan_devices(const char *path, joy_dev_info_t ***devices)
             lib_free(info->path);
             lib_free(info);
         }
-
-        free(namelist[i]);
+        free(namelist[d]);
     }
     free(namelist);
 
@@ -660,4 +659,54 @@ void joy_free_devices_list(void)
     }
     devices_list  = NULL;
     devices_count = 0;
+}
+
+
+static int compar_guid(const void *p1, const void *p2)
+{
+    const joy_dev_info_t *d1 = p1;
+    const joy_dev_info_t *d2 = p2;
+
+    return strcmp(d1->guid_str, d2->guid_str);
+}
+
+static int compar_name(const void *p1, const void *p2)
+{
+    const joy_dev_info_t *d1 = p1;
+    const joy_dev_info_t *d2 = p2;
+
+    return strcmp(d1->name, d2->name);
+}
+
+static int compar_node(const void *p1, const void *p2)
+{
+    const joy_dev_info_t *d1 = p1;
+    const joy_dev_info_t *d2 = p2;
+
+    return strcmp(d1->path, d2->path);
+}
+
+
+void joy_sort_devices_list(joy_sort_field_t field)
+{
+    int (*compar)(const void *, const void *);
+
+    if (devices_list == NULL) {
+        return;
+    }
+    switch (field) {
+        case JOY_SORT_GUID:
+            compar = compar_guid;
+            break;
+        case JOY_SORT_NAME:
+            compar = compar_name;
+            break;
+        case JOY_SORT_NODE:
+            compar = compar_node;
+            break;
+        default:
+            return;
+    }
+
+    qsort((void *)devices_list, sizeof devices_list[0], sizeof devices_list, compar);
 }

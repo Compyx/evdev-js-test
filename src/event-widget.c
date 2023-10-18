@@ -216,6 +216,8 @@ void event_widget_set_device(joy_dev_info_t *device)
     const char   *name;
     unsigned int  i;
 
+    event_widget_clear();
+
     /* Buttons */
     titled_grid_clear(button_grid, BUTTON_GRID_COLUMNS);
     for (i = 0; i < device->num_buttons; i++) {
@@ -389,7 +391,6 @@ static gpointer poll_worker(gpointer data)
                 app_window_message("Stopped polling.");
                 close(fd);
                 libevdev_free(dev);
-                poll_state.cancel = FALSE;
                 g_mutex_unlock(&poll_mutex);
                 return NULL;
             }

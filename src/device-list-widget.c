@@ -147,6 +147,7 @@ static void on_expander_expanded(G_GNUC_UNUSED GObject    *self,
                                                gpointer    data)
 {
     current_device = data;
+    event_widget_stop_poll();
     event_widget_set_device(data);
 }
 

@@ -146,9 +146,7 @@ static void on_expander_expanded(G_GNUC_UNUSED GObject    *self,
                                  G_GNUC_UNUSED GParamSpec *param_spec,
                                                gpointer    data)
 {
-    current_device = data;
-    event_widget_stop_poll();
-    event_widget_set_device(data);
+    event_widget_start_poll(data);
 }
 
 static void on_expander_destroy(G_GNUC_UNUSED GtkWidget *self,
@@ -158,14 +156,11 @@ static void on_expander_destroy(G_GNUC_UNUSED GtkWidget *self,
 }
 
 
-static GtkWidget *box_row_new(const joy_dev_info_t *device)
+static GtkWidget *box_row_new(joy_dev_info_t *device)
 {
     GtkWidget *row;
     GtkWidget *expander;
-    joy_dev_info_t *devinfo;
 
-
-    devinfo  = joy_dev_info_dup(device);
     row      = gtk_list_box_row_new();
     expander = gtk_expander_new(device->name);
     gtk_container_add(GTK_CONTAINER(expander), create_inner_widget(device));
@@ -174,11 +169,11 @@ static GtkWidget *box_row_new(const joy_dev_info_t *device)
     g_signal_connect(G_OBJECT(expander),
                      "notify::expanded",
                      G_CALLBACK(on_expander_expanded),
-                     (gpointer)devinfo);
+                     (gpointer)device);
     g_signal_connect(G_OBJECT(expander),
                      "destroy",
                      G_CALLBACK(on_expander_destroy),
-                     (gpointer)devinfo);
+                     (gpointer)device);
 
     gtk_widget_show_all(row);
     return row;
@@ -284,21 +279,6 @@ int device_list_scan_devices(void)
     num = joy_scan_devices("/dev/input/by-id", &scanned_devices);
 
     device_list_clear();
-#if 0
-    if (joy_dev_iter_init(&iter, "/dev/input/by-id")) {
-        do {
-            GtkWidget      *row;
-
-            row = box_row_new(joy_dev_iter_get_device_info(&iter));
-            gtk_list_box_insert(GTK_LIST_BOX(device_view), row, -1);
-            num++;
-        } while (joy_dev_iter_next(&iter));
-
-        joy_dev_iter_free(&iter);
-    } else {
-        g_printerr("%s(): no devices found.\n", __func__);
-    }
-#endif
     for (i = 0; i < num; i++) {
         GtkWidget *row = box_row_new(scanned_devices[i]);
         gtk_list_box_insert(GTK_LIST_BOX(device_view), row, -1);

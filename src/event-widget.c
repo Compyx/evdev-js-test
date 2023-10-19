@@ -31,28 +31,38 @@
 /** \brief  Number of columns in the hat state grid */
 #define HAT_GRID_COLUMNS    2
 
-/** \brief  Polling state object
- */
-typedef struct poll_state_s {
-    GThread        *thread;         /**< worker thread polling events */
-    joy_dev_info_t *device;         /**< device to poll */
-    gboolean        polling;        /**< worker thread is polling */
-    int             prev_type;      /**< previous value of event type */
-    int             prev_code;      /**< previous value of event code */
-    int             prev_value;     /**< previous value of event value */
+typedef enum {
+    POLL_STATE_IDLE = 0,
+    POLL_STATE_START,
+    POLL_STATE_POLL,
+    POLL_STATE_STOP,
+    POLL_STATE_TEARDOWN
 } poll_state_t;
 
 
-/** \brief  Polling state
+/** \brief  Polling state object
+ */
+typedef struct poll_data_s {
+    guint            source_id;
+    struct libevdev *evdev;
+    int              fd;
+    joy_dev_info_t  *new_device;
+    joy_dev_info_t  *cur_device;     /**< device to poll */
+    poll_state_t     state;
+    gboolean         polling;
+    int              prev_type;      /**< previous value of event type */
+    int              prev_code;      /**< previous value of event code */
+    int              prev_value;     /**< previous value of event value */
+} poll_data_t;
+
+
+/** \brief  Polling data
  *
  * Object for the UI thread and the polling thread to communicate.
- * Only to be accessed through calling \c poll_state_obtain() and
- * \c poll_state_release().
+ * Only to be accessed through calling \c poll_lock_obtain() and
+ * \c poll_lock_release().
  */
-static poll_state_t  poll_state;
-
-/** \brief  Mutex controlling access to the poll state object */
-static GMutex        poll_mutex;
+static poll_data_t  poll_data;
 
 /** \brief  Grid containing button state widgets */
 static GtkWidget    *button_grid;
@@ -65,35 +75,51 @@ static GtkWidget    *hat_grid;
 
 
 /** \brief  Initialize polling state
- */
-static void poll_state_init(void)
-{
-    g_mutex_init(&poll_mutex);
-    g_mutex_lock(&poll_mutex);
-    poll_state.thread     = NULL;
-    poll_state.device     = NULL;
-    poll_state.polling    = FALSE;
-    poll_state.prev_type  = -1;
-    poll_state.prev_code  = -1;
-    poll_state.prev_value = -1;
-    g_mutex_unlock(&poll_mutex);
-}
-
-/** \brief  Obtain lock on poll state
  *
- * \return  poll state
+ * FIXME: rename, no longer uses threading or mutex
  */
-static poll_state_t *poll_state_obtain(void)
+static void poll_lock_init(void)
 {
-    g_mutex_lock(&poll_mutex);
-    return &poll_state;
+    poll_data.source_id  = 0;
+    poll_data.new_device = NULL;
+    poll_data.cur_device = NULL;
+    poll_data.polling    = FALSE;
+    poll_data.state      = POLL_STATE_IDLE;
+    poll_data.prev_type  = -1;
+    poll_data.prev_code  = -1;
+    poll_data.prev_value = -1;
 }
 
-/** \brief  Release lock on poll state
- */
-static void poll_state_release(void)
+static gboolean poll_worker(gpointer data);
+
+static void poll_lock_start_timeout(void)
 {
-    g_mutex_unlock(&poll_mutex);
+    poll_data.source_id = g_timeout_add(10, poll_worker, NULL);
+}
+
+static void poll_lock_remove_timeout(void)
+{
+    if (poll_data.source_id > 0) {
+        g_source_remove(poll_data.source_id);
+        poll_data.source_id = 0;
+    }
+}
+
+/** \brief  Obtain lock on poll data
+ *
+ * \return  poll data object reference
+ */
+static poll_data_t *poll_lock_obtain(void)
+{
+//    g_mutex_lock(&poll_mutex);
+    return &poll_data;
+}
+
+/** \brief  Release lock on poll data
+ */
+static void poll_lock_release(void)
+{
+//    g_mutex_unlock(&poll_mutex);
 }
 
 /** \brief  Create label using Pango markup and setting horizontal alignment
@@ -186,7 +212,7 @@ GtkWidget *event_widget_new(void)
     GtkWidget *grid;
     GtkWidget *stop_btn;
 
-    poll_state_init();
+    poll_lock_init();
 
     grid = titled_grid_new("<b>Joystick events</b>", 3, 32, 16);
     gtk_grid_set_column_homogeneous(GTK_GRID(grid), TRUE);
@@ -210,6 +236,8 @@ GtkWidget *event_widget_new(void)
                      NULL);
 
     gtk_widget_show_all(grid);
+
+    poll_lock_start_timeout();
     return grid;
 }
 
@@ -230,11 +258,11 @@ void event_widget_clear(void)
  */
 void event_widget_set_device(joy_dev_info_t *device)
 {
+    /* FIXME: move into poll worker! */
+
     GtkWidget    *label;
     const char   *name;
     unsigned int  i;
-
-    event_widget_clear();
 
     /* Buttons */
     titled_grid_clear(button_grid, BUTTON_GRID_COLUMNS);
@@ -268,8 +296,6 @@ void event_widget_set_device(joy_dev_info_t *device)
         gtk_grid_attach(GTK_GRID(axis_grid), label, 0, (int)i + 1, 1, 1);
         gtk_grid_attach(GTK_GRID(axis_grid), axis,  1, (int)i + 1, 1, 1);
     }
-
-    event_widget_start_poll(device);
 }
 
 
@@ -277,18 +303,17 @@ void event_widget_set_device(joy_dev_info_t *device)
  *
  * \param[in]   ev  event data
  */
-static void update_button(struct input_event *ev)
+static void update_button(joy_dev_info_t *dev, struct input_event *ev)
 {
-    unsigned int    b;
-    joy_dev_info_t *dev = poll_state.device;
+    unsigned int i;
 
     if (dev == NULL) {
         return;
     }
 
-    for (b = 0; dev->num_buttons; b++) {
-        if (ev->code == dev->button_map[b]) {
-            GtkWidget *led = gtk_grid_get_child_at(GTK_GRID(button_grid), 1, (int)b + 1);
+    for (i = 0; dev->num_buttons; i++) {
+        if (ev->code == dev->button_map[i]) {
+            GtkWidget *led = gtk_grid_get_child_at(GTK_GRID(button_grid), 1, (int)i + 1);
 
             if (led != NULL) {
                 joy_button_widget_set_pressed(led, ev->value);
@@ -300,10 +325,9 @@ static void update_button(struct input_event *ev)
     }
 }
 
-static void update_axis(struct input_event *ev)
+static void update_axis(joy_dev_info_t *dev, struct input_event *ev)
 {
-    unsigned int    i;
-    joy_dev_info_t *dev = poll_state.device;
+    unsigned int i;
 
     if (dev == NULL) {
         return;
@@ -327,23 +351,21 @@ static void update_axis(struct input_event *ev)
  *
  * \param[in]   ev  event data
  */
-static void event_widget_update(struct input_event *ev)
+static void event_widget_update(poll_data_t *pd, struct input_event *event)
 {
-    int           type  = ev->type;
-    int           code  = ev->code;
-    int           value = ev->value;
-    poll_state_t *state = poll_state_obtain();
+    int           type  = event->type;
+    int           code  = event->code;
+    int           value = event->value;
 
     if (type == EV_KEY) {
-        update_button(ev);
+        update_button(pd->cur_device, event);
     } else if (type == EV_ABS) {
-        update_axis(ev);
+        update_axis(pd->cur_device, event);
     }
 
-    state->prev_type  = type;
-    state->prev_code  = code;
-    state->prev_value = value;
-    poll_state_release();
+    pd->prev_type  = type;
+    pd->prev_code  = code;
+    pd->prev_value = value;
 }
 
 /** \brief  Debug hook: print event data to stdout
@@ -375,76 +397,113 @@ static void print_event(struct input_event *ev)
  *
  * \return  \c NULL
  */
-static gpointer poll_worker(gpointer data)
+static gboolean poll_worker(G_GNUC_UNUSED gpointer data)
 {
-    int              fd;
+    joy_dev_info_t  *info  = NULL;
+    struct input_event event;
+    poll_data_t     *pd;
+    unsigned int     flags = LIBEVDEV_READ_FLAG_NORMAL;
     int              rc;
-    struct libevdev *dev;
-    joy_dev_info_t  *info = data;
 
-    fd = open(info->path, O_RDONLY|O_NONBLOCK);
-    if (fd < 0) {
-        perror("Failed to open device");
-        return NULL;
-    }
-    rc = libevdev_new_from_fd(fd, &dev);
-    if (rc < 0) {
-        fprintf(stderr, "failed to initialize libevdev: %s\n", strerror(-rc));
-        close(fd);
-        return NULL;
-    }
+    pd = poll_lock_obtain();
 
-    printf("Starting polling\n");
-
-    do {
-        struct input_event ev;
-        unsigned int flags = LIBEVDEV_READ_FLAG_NORMAL;
-
-        while (libevdev_has_event_pending(dev) == 0) {
-            poll_state_t *state;
-
-            state = poll_state_obtain();
-            if (!state->polling) {
-                printf("Stopping polling.\n");
-                app_window_message("Stopped polling.");
-                close(fd);
-                libevdev_free(dev);
-                poll_state_release();
-                return NULL;
-            }
-            poll_state_release();
-            g_thread_yield();
-            g_usleep(G_USEC_PER_SEC / 60);
+    if (pd->new_device != NULL) {
+        if (pd->state != POLL_STATE_IDLE) {
+            pd->state = POLL_STATE_STOP;
         }
-
-        rc = libevdev_next_event(dev, flags, &ev);
-        if (rc == LIBEVDEV_READ_STATUS_SYNC) {
-            printf("=== dropped ===\n");
-            while (rc == LIBEVDEV_READ_STATUS_SYNC) {
-                printf("SYNC:\n");
-                print_event(&ev);
-                rc = libevdev_next_event(dev, LIBEVDEV_READ_FLAG_SYNC, &ev);
-            }
-            printf("=== re-synced ===\n");
-        } else if (rc == LIBEVDEV_READ_STATUS_SUCCESS) {
-            event_widget_update(&ev);
-            print_event(&ev);
-        }
-
-
-
-    } while (rc == LIBEVDEV_READ_STATUS_SYNC ||
-             rc == LIBEVDEV_READ_STATUS_SUCCESS ||
-             rc == -EAGAIN);
-
-    if (rc != LIBEVDEV_READ_STATUS_SUCCESS && rc != -EAGAIN) {
-        fprintf(stderr, "failed to handle events: %s\n", strerror(-rc));
     }
 
-    close(fd);
-    libevdev_free(dev);
+    switch (pd->state) {
 
-    return NULL;
+        case POLL_STATE_IDLE:
+            /* only from idle can we start polling a new device */
+            if (pd->new_device != NULL) {
+                g_print("Setting new device %s\n", pd->new_device->name);
+                pd->cur_device = pd->new_device;
+                pd->new_device = NULL;
+                pd->state      = POLL_STATE_START;
+            }
+            break;
+
+        case POLL_STATE_STOP:
+            printf("Stopping polling.\n");
+            app_window_message("Stopped polling.");
+
+            if (pd->evdev != NULL) {
+                libevdev_free(pd->evdev);
+                pd->evdev = NULL;
+            }
+            if (pd->fd >= 0) {
+                close(pd->fd);
+                pd->fd = -1;
+            }
+            pd->cur_device = NULL;
+            pd->state      = POLL_STATE_IDLE;
+            break;
+
+        case POLL_STATE_TEARDOWN:
+            g_print("Tearing down worker thread.\n");
+            poll_lock_release();
+            return G_SOURCE_REMOVE;
+
+        case POLL_STATE_START:
+            g_print("Starting polling.\n");
+            info   = pd->cur_device;
+            pd->fd = open(info->path, O_RDONLY);
+            if (pd->fd < 0) {
+                g_print("Failed to open device at %s: %s\n",
+                           info->path, strerror(errno));
+                pd->state = POLL_STATE_IDLE;
+                break;
+            }
+            rc = libevdev_new_from_fd(pd->fd, &(pd->evdev));
+            if (rc < 0) {
+                g_print("Failed to initialize libevdev: %s\n",
+                           strerror(-rc));
+                pd->state = POLL_STATE_IDLE;
+                break;
+            }
+            g_print("OK: libevdev *dev = %p\n", (const void *)pd->evdev);
+
+            event_widget_set_device(pd->cur_device);
+            pd->state = POLL_STATE_POLL;
+            break;
+
+        case POLL_STATE_POLL:
+            while (libevdev_has_event_pending(pd->evdev)) {
+                rc = libevdev_next_event(pd->evdev, flags, &event);
+                if (rc == LIBEVDEV_READ_STATUS_SYNC) {
+                    printf("=== dropped ===\n");
+                    while (rc == LIBEVDEV_READ_STATUS_SYNC) {
+                        printf("SYNC:\n");
+                        print_event(&event);
+                        rc = libevdev_next_event(pd->evdev, LIBEVDEV_READ_FLAG_SYNC, &event);
+                    }
+                    printf("=== re-synced ===\n");
+                } else if (rc == LIBEVDEV_READ_STATUS_SUCCESS) {
+                    event_widget_update(pd, &event);
+                    print_event(&event);
+                }
+            }
+            break;
+    }
+
+    poll_lock_release();
+    return G_SOURCE_CONTINUE;
+
+#if 0
+            } while (rc == LIBEVDEV_READ_STATUS_SYNC ||
+                     rc == LIBEVDEV_READ_STATUS_SUCCESS ||
+                     rc == -EAGAIN);
+
+            if (rc != LIBEVDEV_READ_STATUS_SUCCESS && rc != -EAGAIN) {C
+                fprintf(stderr, "failed to handle events: %s\n", strerror(-rc));
+            }
+
+            close(fd);
+            libevdev_free(dev);
+#endif
+
 }
 
 
@@ -454,30 +513,35 @@ static gpointer poll_worker(gpointer data)
  */
 void event_widget_start_poll(joy_dev_info_t *device)
 {
-    poll_state_t *state;
+    poll_data_t *pd;
 
+    pd = poll_lock_obtain();
+    pd->new_device = device;
+    poll_lock_release();
+#if 0
     g_print("Waiting for cancel to be FALSE\n");
     while (TRUE) {
-        state = poll_state_obtain();
-        if (!state->polling) {
+        pd = poll_lock_obtain();
+        if (!pd->polling) {
             g_print("OK:\n");
             break;
         }
-        poll_state_release();
+        poll_lock_release();
         g_usleep(1000);
     }
 
-    if (state->thread == NULL) {
+    if (pd->thread == NULL) {
         char text[256];
 
         g_snprintf(text, sizeof text, "Polling device %s", device->name);
         app_window_message(text);
 
-        state->device  = device;
-        state->polling = TRUE;
-        state->thread  = g_thread_new("poll", poll_worker, device);
+        pd->device  = device;
+        pd->polling = TRUE;
+        pd->thread  = g_thread_new("poll", poll_worker, device);
     }
-    poll_state_release();
+    poll_lock_release();
+#endif
 }
 
 
@@ -485,8 +549,7 @@ void event_widget_start_poll(joy_dev_info_t *device)
  */
 void event_widget_stop_poll(void)
 {
-    poll_state_t *state = poll_state_obtain();
-    state->polling = FALSE;
-    state->thread  = NULL;
-    g_mutex_unlock(&poll_mutex);
+    poll_data_t *pd = poll_lock_obtain();
+    pd->state = POLL_STATE_STOP;
+    poll_lock_release();
 }

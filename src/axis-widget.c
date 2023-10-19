@@ -48,7 +48,7 @@ GtkWidget *joy_axis_widget_new(int32_t minimum, int32_t maximum)
                      G_CALLBACK(format_value),
                      NULL);
 
-
+#if 0
     if (provider == NULL) {
         GError *error = NULL;
 
@@ -59,6 +59,8 @@ GtkWidget *joy_axis_widget_new(int32_t minimum, int32_t maximum)
             g_error_free(error);
             g_object_unref(provider);
             provider = NULL;
+        } else {
+            g_object_ref(provider);
         }
     }
     if (provider != NULL) {
@@ -68,7 +70,7 @@ GtkWidget *joy_axis_widget_new(int32_t minimum, int32_t maximum)
                                        GTK_STYLE_PROVIDER(provider),
                                        GTK_STYLE_PROVIDER_PRIORITY_USER);
     }
-
+#endif
     gtk_widget_show_all(scale);
     return scale;
 }
